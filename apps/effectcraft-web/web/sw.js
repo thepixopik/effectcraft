@@ -1,10 +1,5 @@
-// EffectCraft service worker: the app works offline once loaded, and installs as an app.
-//
-// `cargo xtask web` fills in the build's file list and version. Every file is precached into a
-// cache named after the version, served cache-first (responses keep the server's headers, so
-// the page stays cross-origin isolated: COOP/COEP), and old versions are dropped once the new
-// one activates. Anything else same-origin is fetched from the network and cached for next time,
-// except the config file, which must stay live.
+// The AllCraft Effect service worker: precaches hashed Wasm chunks & assets for instant repeat loads
+// while keeping navigation HTML network-first so Studio splash/UI updates appear immediately.
 const VERSION = "__EC_VERSION__";
 const FILES = __EC_FILES__;
 const CACHE = `effectcraft-${VERSION}`;
@@ -35,10 +30,20 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE).catch(() => null);
+      if (req.mode === "navigate") {
+        const key = new URL("./", self.registration.scope).href;
+        try {
+          const fresh = await fetch(req);
+          if (cache && fresh.ok) void cache.put(key, fresh.clone()).catch(() => {});
+          return fresh;
+        } catch {
+          const hit = cache && (await cache.match(key, { ignoreSearch: true }).catch(() => null));
+          if (hit) return hit;
+          throw new Error("offline");
+        }
+      }
       if (cache) {
-        // The page itself regardless of its query (?empty, ?demo…).
-        const key = req.mode === "navigate" ? new URL("./", self.registration.scope).href : req;
-        const hit = await cache.match(key, { ignoreSearch: req.mode === "navigate" }).catch(() => null);
+        const hit = await cache.match(req).catch(() => null);
         if (hit) return hit;
       }
       const res = await fetch(req);
